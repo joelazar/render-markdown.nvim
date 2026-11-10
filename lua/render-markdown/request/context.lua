@@ -12,8 +12,48 @@ local str = require('render-markdown.lib.str')
 ---@field inline render.md.request.Inline
 ---@field latex render.md.request.Latex
 ---@field used render.md.request.Used
+---@field hints render.md.request.context.Hint[]
 local Context = {}
 Context.__index = Context
+
+---@class render.md.request.context.Hint
+---@field row integer
+---@field col integer
+---@field line render.md.mark.Line
+
+---@param buf integer
+---@return render.md.request.context.Hint[]
+local function inlay_hints(buf)
+    local result = {} ---@type render.md.request.context.Hint[]
+    if not vim.lsp.inlay_hint or not vim.lsp.inlay_hint.get then
+        return result
+    end
+    for _, item in ipairs(vim.lsp.inlay_hint.get({ bufnr = buf })) do
+        local hint = item.inlay_hint
+        local text = ''
+        if type(hint.label) == 'string' then
+            text = hint.label --[[@as string]]
+        else
+            for _, part in ipairs(hint.label) do
+                text = text .. part.value
+            end
+        end
+        local line = {} ---@type render.md.mark.Line
+        if hint.paddingLeft then
+            line[#line + 1] = { ' ', '' }
+        end
+        line[#line + 1] = { text, 'LspInlayHint' }
+        if hint.paddingRight then
+            line[#line + 1] = { ' ', '' }
+        end
+        result[#result + 1] = {
+            row = hint.position.line,
+            col = hint.position.character,
+            line = line,
+        }
+    end
+    return result
+end
 
 ---@param buf integer
 ---@param win integer
@@ -34,6 +74,11 @@ function Context.new(buf, win, config, view)
     self.inline = require('render-markdown.request.inline').new()
     self.latex = require('render-markdown.request.latex').new()
     self.used = require('render-markdown.request.used').new()
+    -- inlay hints are inline virtual text owned by neovim, they shift text
+    self.hints = inlay_hints(buf)
+    for _, hint in ipairs(self.hints) do
+        self.inline:add(hint.row, { col = hint.col, line = hint.line })
+    end
     return self
 end
 
@@ -60,7 +105,10 @@ M.cache = {}
 ---@return boolean
 function M.contains(buf, win)
     local context = M.cache[buf]
-    return context and context.view:contains(win) or false
+    return context
+            and context.view:contains(win)
+            and vim.deep_equal(context.hints, inlay_hints(buf))
+        or false
 end
 
 ---@param buf integer

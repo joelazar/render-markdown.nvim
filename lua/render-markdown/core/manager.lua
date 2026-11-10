@@ -125,6 +125,26 @@ function M.attach(buf)
         end,
     })
 
+    if vim.fn.exists('##LspRequest') == 1 then
+        vim.api.nvim_create_autocmd('LspRequest', {
+            group = M.group,
+            buffer = buf,
+            callback = function(args)
+                local request = args.data.request
+                if
+                    request.type == 'complete'
+                    and request.method == 'textDocument/inlayHint'
+                    and state.get(buf).enabled
+                then
+                    -- hints are stored by the response handler after this
+                    vim.schedule(function()
+                        ui.update(buf, env.buf.win(buf), args.event, false)
+                    end)
+                end
+            end,
+        })
+    end
+
     if config.enabled then
         ui.update(buf, env.buf.win(buf), 'Initial', true)
     end
